@@ -15,17 +15,34 @@ except ModuleNotFoundError:
 
 def channel_byname(channel_func):
     @wraps(channel_func)
-    def wrapper(mux64, channel, calibrate):
+    def wrapper(mux64, *args, **kwargs):
+        if 'channel' in kwargs:
+            channel = kwargs['channel']
+            channel_from_kwargs = True
+        elif len(args) > 0:
+            channel = args[0]
+            channel_from_kwargs = False
+        else:
+            raise TypeError(f"{channel_func.__name__} missing required positional argument: 'channel'")
+
         if isinstance(channel, str):
             channel_dict = mux64.channel_mapping
-            pin = channel_dict[channel]['pin']
-            return channel_func(mux64, pin, calibrate)
+            try:
+                pin = channel_dict[channel]['pin']
+                if channel_from_kwargs:
+                    kwargs['channel'] = pin
+                    return channel_func(mux64, *args, **kwargs)
+                args = (pin, *args[1:])
+                return channel_func(mux64, *args, **kwargs)
+            except KeyError: 
+                print(f"{channel_func.__name__} used str as input, but ran into KeyError. All channel names of this MUX64: ", channel_dict.keys())
         elif isinstance(channel, int):
-            return channel_func(mux64, channel, calibrate)
+            return channel_func(mux64, *args, **kwargs)
         else:
             invalid_type = type(channel)
             raise TypeError(f"{channel_func.__name__} can only take positional arguments of type int or str, but argument of type {invalid_type} was given.")
     return wrapper
+
 
 def channel_bypin(channel_func):
     @wraps(channel_func)
@@ -53,6 +70,7 @@ class MUX64:
         self.LPGBT = LPGBT
         self.SCA = SCA
         self.rbver = rbver
+        self.configured  = False
 
         self.configure()
 
@@ -62,6 +80,9 @@ class MUX64:
         if LPGBT and SCA:
             print("MUX64 is connected to both LPGBT and SCA: Please pick one")
 
+    def update_rb_ver(self, rbver):
+        self.rbver = rbver
+        self.configure()
 
     def is_connected(self):
         if self.LPGBT:
@@ -80,6 +101,7 @@ class MUX64:
         if self.LPGBT:
             for p in range(1, 6+1):
                 self.LPGBT.set_gpio_direction(f"MUXCNT{p}", 1)
+        self.configured = True
 
 
     def set_channel_mapping(self):
@@ -96,7 +118,9 @@ class MUX64:
             #input_voltage = value_calibrated / (2**10 - 1) * self.LPGBT.adc_mapping['MUX64OUT']['conv']
             voltage = value/(2**10 - 1)
             if not direct:
-                voltage = voltage * self.get_conversion_factor(R1=self.channel_mapping[channel]['R1'], R2=self.channel_mapping[channel]['R2'])
+                conv = self.channel_mapping[channel]['conv'] if 'conv' in self.channel_mapping[channel] else \
+                       self.get_conversion_factor(R1=self.channel_mapping[channel]['R1'], R2=self.channel_mapping[channel]['R2'])
+                voltage = voltage * conv
         else:
             voltage = 0.0
         return voltage
@@ -127,9 +151,12 @@ class MUX64:
     
     @channel_byname
     def read_adc(self, channel, calibrate=False):
+        if not self.configured:
+            self.configure()
 
         #channel select
         self.select_channel(channel)
+        time.sleep(0.1)
 
         if self.SCA:
             value = self.SCA.read_adc(0x12)
@@ -137,6 +164,8 @@ class MUX64:
         if self.LPGBT:
             value = self.LPGBT.read_adc(self.LPGBT.adc_mapping['MUX64OUT']['pin'], calibrate=calibrate)
         
+        self.select_channel(63) # Set MUX64 back to ground, helps catch case where VREF was left monitored -> causes noise
+        time.sleep(0.1)
         return value
 
     def read_channel(self, channel, calibrate=True, direct=False):
@@ -145,23 +174,26 @@ class MUX64:
         return value
 
     def read_channels(self): #read and print all adc values
-        self.set_channel_mapping()
+        if not self.configured:
+            self.configure()
+
         channel_dict = self.channel_mapping
         table = []
-        will_fail = False
         for channel in channel_dict.keys():
             pin = channel_dict[channel]['pin']
             comment = channel_dict[channel]['comment']
-            value = self.read_adc(pin, calibrate=True)
             value_raw = self.read_adc(pin, calibrate=False)
-            voltage = self.read_channel(pin)
-            voltage_direct = self.read_channel(pin, direct=True)
+            value = value_raw
+            if self.LPGBT:
+                value = self.LPGBT.apply_adc_calibration(value_raw, official=True) # calibrated value
+            voltage_direct = value/(2**10 - 1)
+            voltage = self.volt_conver(value, pin, direct=False)
             table.append([channel, pin, value_raw, value, voltage_direct, voltage, comment])
 
         headers = ["Channel","Pin", "Reading (raw)", "Reading (calib)", "Voltage (direct)", "Voltage (conv)", "Comment"]
 
         if has_tabulate:
-            print(tabulate(table, headers=headers,  tablefmt="simple_outline"))
+            print(tabulate(table, headers=headers,  tablefmt="simple_outline",  floatfmt=".3f"))
         else:
             header_string = "{:<20}"*len(headers)
             data_string = "{:<20}{:<20}{:<20.0f}{:<20.0f}{:<20.3f}{:<20.3f}{:<20}"
@@ -169,17 +201,25 @@ class MUX64:
             for line in table:
                 print(data_string.format(*line))
 
-    def get_conversion_factor(self, R=0, R1=82, R2=82):
+    def get_conversion_factor(self, R=0, R1=82, R2=82, R01=20, R02=20):
         '''
         resistance values in kOhm
-        R - voltage divider on the MUX output
+        # R0 - voltage divider on the MUX output
         R1 - resistor between measurement source and MUX input
         R2 - resistor between MUX input and ground
+        R01 - resistor between MUX output and lpGBT input
+        R02 - resistor between lpGBT input and ground
         '''
-        if R==0:
-            return (R1+R2)/R2
+        if self.rbver < 4:
+            if R==0:
+                return (R1+R2)/R2
+            else:
+                return 1/((1/2)*(2*R*R2)/(R1*(2*R+R1)+2*R*R2)) # Need to review this
         else:
-            return 1/((1/2)*(2*R*R2)/(R1*(2*R+R1)+2*R*R2))
+            if R01==0:
+                return (R1+R2)/R2
+            else:
+                return (R01+R02)/R02*(R1+R2)/R2
 
     def monitor_channels(self, channels = ['mod0_a5', 'mod1_a5', 'mod2_a5'], lat = 1.0, time_max = 60.0, plot = True):
         # time is given in seconds

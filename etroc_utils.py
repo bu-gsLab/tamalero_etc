@@ -6,11 +6,13 @@ import mplhep as hep
 hep.style.use('CMS')
 
 from pathlib import Path
+import uuid
 
 #--------------------------------------------------------------------------#
 def convert_dict_to_pandas(input_dict, chip_name, hv):
     bl_nw_df = pd.DataFrame(data = input_dict)
     bl_nw_df['chip_name'] = chip_name
+    bl_nw_df['uuid'] = str(uuid.uuid1())
     bl_nw_df['hv'] = hv
 
     return bl_nw_df

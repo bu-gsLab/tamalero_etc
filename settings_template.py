@@ -13,16 +13,23 @@ class ETROCConfig:
 class DAQConfig:
     # Hardware Settings
     kcu_ip: str = "192.168.0.10"
-    readout_board_id: int = 0
-    readout_board_config: str = 'default'
+    readout_board_id: int = 1
+    readout_board_config: str = 'modulev2'
 
     # --- BOARD DEFINITIONS (The Single Source of Truth) ---
     # Edit ONLY this list to add/remove boards
+    # boards: List[ETROCConfig] = field(default_factory=lambda: [
+    #     ETROCConfig(name="", i2c_id=0x60, elink_id=0,  th_offset=20, l1a_delay=0x1f5),
+    #     ETROCConfig(name="", i2c_id=0x61, elink_id=4,  th_offset=20, l1a_delay=0x1f5),
+    #     ETROCConfig(name="", i2c_id=0x62, elink_id=8,  th_offset=20, l1a_delay=0x1f5),
+    #     ETROCConfig(name="", i2c_id=0x63, elink_id=12, th_offset=20, l1a_delay=0x1f5),
+    # ])
+
     boards: List[ETROCConfig] = field(default_factory=lambda: [
-        ETROCConfig(name="", i2c_id=0x60, elink_id=0,  th_offset=20, l1a_delay=0x1f5),
-        ETROCConfig(name="", i2c_id=0x61, elink_id=4,  th_offset=20, l1a_delay=0x1f5),
-        ETROCConfig(name="", i2c_id=0x62, elink_id=8,  th_offset=20, l1a_delay=0x1f5),
-        ETROCConfig(name="", i2c_id=0x63, elink_id=12, th_offset=20, l1a_delay=0x1f5),
+        # ETROCConfig(name="", i2c_id=0x70, elink_id=14,  th_offset=20, l1a_delay=0x1f5),
+        # ETROCConfig(name="", i2c_id=0x71, elink_id=8,  th_offset=20, l1a_delay=0x1f5),
+        # ETROCConfig(name="", i2c_id=0x72, elink_id=10,  th_offset=20, l1a_delay=0x1f5),
+        ETROCConfig(name="", i2c_id=0x73, elink_id=14, th_offset=20, l1a_delay=0x1f5),
     ])
 
     # --- DERIVED FIELDS (Automatically Calculated) ---
@@ -41,8 +48,8 @@ class DAQConfig:
     trigger_logic:     int = 0 ## 0: OR, 1: AND
 
     # File/Path Settings
-    path_to_figure: str = '/home/daq/ETROC2_KCU105/ETROC-figures'
-    path_to_hist: str = '/home/daq/ETROC2_KCU105/ETROC-History'
+    path_to_figure: str = '/home/etl/Test_Stand/tamaleros/etroc_team_tb_code/tamalero/results'
+    path_to_hist: str = '/home/etl/Test_Stand/tamaleros/etroc_team_tb_code/tamalero/results'
     chunk_size: int = 1000
     max_file_size_bytes: int = 25 * 1024 * 1024
 

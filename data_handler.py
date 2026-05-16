@@ -1,7 +1,7 @@
 import struct
 from pathlib import Path
 from datetime import datetime
-from settings import DAQConfig
+from settings_template import DAQConfig
 
 def generate_run_dir(root_path, run_type="beam", note=""):
     """

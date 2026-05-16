@@ -1,7 +1,7 @@
 import os
 from tamalero.LPGBT import LPGBT
 from tamalero.SCA import SCA
-# from tamalero.MUX64 import MUX64
+from tamalero.MUX64 import MUX64
 from tamalero.utils import get_temp, chunk, get_temp_direct, get_config, load_yaml
 from tamalero.VTRX import VTRX
 from tamalero.utils import read_mapping
@@ -57,35 +57,61 @@ class ReadoutBoard:
             self.kcu.readout_boards.append(self)
             self.DAQ_LPGBT.configure()
             # If version is undetermined or older than 3, get version from LPGBT and try to connect SCA to KCU
-            # self.SCA = SCA(rb=rb, flavor=flavor, ver=self.DAQ_LPGBT.ver, config=self.config, poke=poke)
+            if self.DAQ_LPGBT.ver < 2:
+                self.SCA = SCA(rb=rb, flavor=flavor, ver=self.DAQ_LPGBT.ver, config=self.config, poke=poke)
+            else:
+                # lpgbt v2 only available for RB versions higher than 3 where SCA is not there anymore
+                self.SCA = SCA(rb=rb, flavor=flavor, ver=1, config=self.config, poke=poke)
             if self.DAQ_LPGBT.ver == 1:
                 self.ver = 2
-                # self.SCA.update_ver(self.ver)
+                self.SCA.update_ver(self.ver)
                 self.DAQ_LPGBT.update_rb_ver(self.ver)
             elif self.DAQ_LPGBT.ver == 0:
                 self.ver = 1
-                # self.SCA.update_ver(self.ver)
+                self.SCA.update_ver(self.ver)
                 self.DAQ_LPGBT.update_rb_ver(self.ver)
-            # self.SCA.connect_KCU(kcu)
+            self.SCA.connect_KCU(kcu)
             try:
                 self.sca_hard_reset()
                 self.sca_setup(verbose=self.verbose)
-                # self.SCA.reset()
-                # self.SCA.connect()
-                # self.SCA.configure_control_registers()
-                # self.SCA.config_gpios()  # this sets the directions etc according to the mapping
-                # if self.verbose:
-                    # print(" > GBT-SCA detected and configured")
+                self.SCA.reset()
+                self.SCA.connect()
+                self.SCA.configure_control_registers()
+                self.SCA.config_gpios()  # this sets the directions etc according to the mapping
+                if self.verbose:
+                    print(" > GBT-SCA detected and configured")
             except TimeoutError:
+                if self.verbose:
+                    print(" > GBT-SCA not detected, will continue without it")
                 self.ver = 3
                 self.DAQ_LPGBT.update_rb_ver(self.ver)
-            # If version newer than 3, connect MUX64
-            # if self.ver > 2:
-            #     self.MUX64 = MUX64(rb=self.rb, ver=1, config=self.config, rbver=self.ver, LPGBT=self.DAQ_LPGBT)
 
+            # If version newer than 3, connect MUX64
+            if self.ver > 2:
+                self.MUX64 = MUX64(rb=self.rb, ver=1, config=self.config, rbver=self.ver, LPGBT=self.DAQ_LPGBT)
+                # Check ground channel to see if it's connected, assuming version 3, then update to version 4
+                # First connect the channel to 63 (ground), need to do it twice for unknown reasons
+                # Hardcoded
+                self.MUX64.read_adc(63, calibrate=False) 
+                if self.MUX64.read_adc(63, calibrate=False) < 50:
+                    self.ver = 4
+                    if self.verbose:
+                        print(" > MUX64 detected, and pin 63 connected to ground")
+                    self.DAQ_LPGBT.update_rb_ver(self.ver)
+                    self.MUX64.update_rb_ver(self.ver)
+
+            if self.ver > 3:
+                if self.DAQ_LPGBT.ver == 2:
+                    self.ver = 5
+                    if self.verbose:
+                        print(" > Identified lpGBT v2 in the board")
+                        self.DAQ_LPGBT.update_rb_ver(self.ver)
+                        self.MUX64.update_rb_ver(self.ver)
+        
         if self.verbose:
             print(f" > Readout Board version detected: {self.ver}")
-
+        
+        print(f"{self.config=}, {self.ver=}, {self.trigger=}")
         self.configuration = get_config(self.config, version=f'v{self.ver}')
 
         if poke:
@@ -108,6 +134,7 @@ class ReadoutBoard:
                     self.TRIG_LPGBT.power_up_init()
 
                 self.TRIG_LPGBT.invert_links()
+                self.TRIG_LPGBT.update_rb_ver(self.ver)
 
         # if not self.configured:
         #     self.configure()
@@ -120,13 +147,14 @@ class ReadoutBoard:
         # print('############################ReadoutBoard self.is_configured Debug############################')
         self.is_configured()
 
+        
 
     def get_trigger(self, poke=False):
         # Self-check if a trigger lpGBT is present, if trigger is not explicitely set to False
         sleep(0.5)
         try:
-            # test_read = self.DAQ_LPGBT.I2C_read(reg=0x0, master=2, slave_addr=0x70, verbose=False)
-            test_read = self.DAQ_LPGBT.I2C_read(reg=0x0, master=0, slave_addr=0x72, verbose=False)
+            test_read = self.DAQ_LPGBT.I2C_read(reg=0x0, master=2, slave_addr=0x70, verbose=False)
+            #test_read = self.DAQ_LPGBT.I2C_read(reg=0x0, master=0, slave_addr=0x72, verbose=False)
         except TimeoutError:
             test_read = None
         if test_read is not None and self.trigger and not poke:
@@ -144,7 +172,7 @@ class ReadoutBoard:
 
         if self.trigger:
             self.TRIG_LPGBT = LPGBT(rb=self.rb, flavor=self.flavor, trigger=True, master=self.DAQ_LPGBT, kcu=self.kcu, config=self.config, poke=poke, rbver=self.ver)
-
+            self.TRIG_LPGBT.configure()
 
     def connect_KCU(self, kcu):
         self.kcu = kcu
@@ -996,5 +1024,55 @@ class ReadoutBoard:
             self.self_trigger_status(verbose=True)
 
 
+    ##################### HAYDEN CHANGES ###########################
 
 
+    def deselect_modules(self):
+        assert self.ver > 3, "Function of MODULE_SELECT only available in RBF or superior version -> Check Readout Board version"
+        self.DAQ_LPGBT.set_gpio('MODULE_SELECT0', 0)
+        self.TRIG_LPGBT.set_gpio('MODULE_SELECT1', 0)
+        self.TRIG_LPGBT.set_gpio('MODULE_SELECT2', 0)
+    
+    def select_module(self, pos_module):
+        assert self.ver > 3, "Function of MODULE_SELECT only available in RBF or superior version -> Check Readout Board version"
+        self.deselect_modules()
+        if pos_module==0:
+            self.DAQ_LPGBT.set_gpio('MODULE_SELECT0', 1)
+        else:
+            self.TRIG_LPGBT.set_gpio(f'MODULE_SELECT{pos_module}', 1) 
+        print(f"Readout Board: Selected module {pos_module + 1}")          
+
+    # def connect_modules(self, power_board=False, moduleids=[9996,9997,9998,9999], hard_reset=False, ext_vref=False, verbose=False, use_etroc_team_config=True):
+    #     if not power_board and self.ver > 3:
+    #         self.TRIG_LPGBT.set_gpio('PENABLE1',1)
+    #         self.TRIG_LPGBT.set_gpio('PENABLE2',1)
+    #         self.TRIG_LPGBT.set_gpio('PENABLE4',1)
+    #         self.TRIG_LPGBT.set_gpio('PENABLE5',1)
+    #         print("Internal RBF power enabled")
+    #         time.sleep(2)
+    #     if ext_vref:
+    #         if self.ver >= 5:
+    #             print("External VREF enabled from RBF")
+    #             self.TRIG_LPGBT.set_gpio('VREF_ENABLE',1)
+
+    #     self.select_module(pos_module=0)
+        # self.modules = []
+        # for i in range(self.nmodules):
+        #     if verbose: print(f"Working on module {i}")
+        #     if i >= len(moduleids): break
+        #     if self.ver > 3:
+        #         self.select_module(pos_module=i) 
+        #     self.modules.append(
+        #         Module(
+        #             self,
+        #             i+1,
+        #             enable_power_board=power_board,
+        #             moduleid=moduleids[i],
+        #             hard_reset = hard_reset,
+        #             ext_vref=ext_vref,
+        #             verbose=verbose,
+        #             use_etroc_team_config=use_etroc_team_config
+        #         ),
+        #     )
+        #     if self.modules[-1].connected:
+        #         print(f"Readout Board {self.rb}: Found connected Module {i+1}")

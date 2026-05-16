@@ -8,7 +8,7 @@ from tamalero.ReadoutBoard import ReadoutBoard
 from tamalero.KCU import KCU
 
 # We import the config type hint only for the IDE, to help with auto-complete
-from settings import DAQConfig
+from settings_template import DAQConfig
 
 class ETROCSystem:
     def __init__(self, config: DAQConfig):
@@ -23,27 +23,59 @@ class ETROCSystem:
         print('--- HARDWARE INITIALIZATION ---')
         self._init_kcu()
         self._init_readout_board()
+
+        rb = self.rb
+
+        rb.TRIG_LPGBT.set_gpio('PENABLE1',1)
+        rb.TRIG_LPGBT.set_gpio('PENABLE2',1)
+        rb.TRIG_LPGBT.set_gpio('PENABLE4',1)
+        rb.TRIG_LPGBT.set_gpio('PENABLE5',1)
+
+        print("Internal RBF power enabled")
+        time.sleep(2)
+        print("External VREF enabled from RBF")
+        rb.TRIG_LPGBT.set_gpio('VREF_ENABLE',1)
+
+        input("turn hv on")
+        rb.select_module(0)
+
         self._init_chips()
         return self
 
     def _init_kcu(self):
-        print("1. Connecting to KCU...")
-        ipb_path = f"chtcp-2.0://localhost:10203?target={self.cfg.kcu_ip}:50001"
-        # Assuming environment variable is set, otherwise hardcode path or add to config
-        generic_xml_path = os.path.expandvars("$TAMALERO_BASE/address_table/generic/etl_test_fw.xml")
+        # print("1. Connecting to KCU...")
+        # ipb_path = f"chtcp-2.0://localhost:10203?target={self.cfg.kcu_ip}:50001"
+        # # Assuming environment variable is set, otherwise hardcode path or add to config
+        # generic_xml_path = os.path.expandvars("$TAMALERO_BASE/address_table/generic/etl_test_fw.xml")
 
-        self.kcu = KCU(
-            name="kcu",
-            ipb_path=ipb_path,
-            adr_table=generic_xml_path
-        )
+        # self.kcu = KCU(
+        #     name="kcu",
+        #     ipb_path=ipb_path,
+        #     adr_table=generic_xml_path
+        # )
 
-        # Quick Loopback Test
-        self.kcu.write_node("LOOPBACK.LOOPBACK", 0xABCD1234)
-        if self.kcu.read_node("LOOPBACK.LOOPBACK").value() == 0xABCD1234:
-            print(green("   KCU Loopback test PASSED"))
+        # # Quick Loopback Test
+        # self.kcu.write_node("LOOPBACK.LOOPBACK", 0xABCD1234)
+        # if self.kcu.read_node("LOOPBACK.LOOPBACK").value() == 0xABCD1234:
+        #     print(green("   KCU Loopback test PASSED"))
+        # else:
+        #     print(red("   KCU Loopback test FAILED"))
+
+        from tamalero.utils import get_kcu
+
+        self.kcu: KCU =get_kcu("192.168.0.10", control_hub=True, verbose=True)
+        if (self.kcu == 0):
+            # if not basic connection was established the get_kcu function returns 0
+            # this would cause the RB init to fail.
+            sys.exit(1)
+        # check that the KCU is actually connected
+        data = 0xabcd1234
+        self.kcu.write_node("LOOPBACK.LOOPBACK", data)
+        if (data != self.kcu.read_node("LOOPBACK.LOOPBACK")):
+            print("No communications with KCU105... quitting")
+            sys.exit(1)
         else:
-            print(red("   KCU Loopback test FAILED"))
+            print("Successful Test Communication with KCU!!")
 
     def _init_readout_board(self):
         print("2. Initializing Readout Board...")
@@ -51,7 +83,7 @@ class ETROCSystem:
             rb=self.cfg.readout_board_id,
             kcu=self.kcu,
             config=self.cfg.readout_board_config,
-            trigger=False,
+            trigger=True,
             verbose=False
         )
         print(green(f"   Readout Board version: {self.rb.ver}"))
@@ -78,7 +110,7 @@ class ETROCSystem:
         for attempt in range(1, max_retries + 1):
             if attempt > 1:
                 print(yellow(f"\n   [Reset] Attempt {attempt}/{max_retries}. Missing chips detected, performing hardware reset..."))
-                self.hardware_reset()
+                self.hardware_reset() # HAYDEN CHANGE
 
             temp_etroc_chips = []
             temp_connected_names = []

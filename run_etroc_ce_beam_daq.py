@@ -8,7 +8,9 @@ from tamalero.FIFO import FIFO
 from tamalero.colors import green, yellow, red
 
 # Local Module imports
-from settings import DAQConfig
+#from settings import DAQConfig
+from settings_template import DAQConfig
+
 from hardware_init import ETROCSystem
 from calibration import CalibrationManager
 from data_handler import DataWriter, generate_run_dir
@@ -120,29 +122,29 @@ def main():
         note=args.note
     )
 
-    if not args.skip_baseline:
-        print("\n--- HV Configuration ---")
+    # if not args.skip_baseline:
+    #     print("\n--- HV Configuration ---")
 
-        for chip_name in config.hvs.keys():
-            # Use a while loop as a 'barrier' until input is valid
-            while True:
-                # Show the current default in the prompt
-                default_val = config.hvs[chip_name]
-                hv_input = input(f"Enter HV for {chip_name} in Volts [Default {default_val}]: ").strip()
+    #     for chip_name in config.hvs.keys():
+    #         # Use a while loop as a 'barrier' until input is valid
+    #         while True:
+    #             # Show the current default in the prompt
+    #             default_val = config.hvs[chip_name]
+    #             hv_input = input(f"Enter HV for {chip_name} in Volts [Default {default_val}]: ").strip()
 
-                # 1. Handle Empty Input (User just hits Enter)
-                if not hv_input:
-                    print(f"   Using default: {default_val}V")
-                    break  # Exit the while loop for this chip
+    #             # 1. Handle Empty Input (User just hits Enter)
+    #             if not hv_input:
+    #                 print(f"   Using default: {default_val}V")
+    #                 break  # Exit the while loop for this chip
 
-                # 2. Validate Numerical Input
-                try:
-                    val = float(hv_input)
-                    config.hvs[chip_name] = val
-                    break  # Input is a valid number, move to next chip
-                except ValueError:
-                    # 3. Handle Mistakes (User typed '150V' or 'abc')
-                    print(f"   Invalid input: '{hv_input}'. Please enter a number only.")
+    #             # 2. Validate Numerical Input
+    #             try:
+    #                 val = float(hv_input)
+    #                 config.hvs[chip_name] = val
+    #                 break  # Input is a valid number, move to next chip
+    #             except ValueError:
+    #                 # 3. Handle Mistakes (User typed '150V' or 'abc')
+    #                 print(f"   Invalid input: '{hv_input}'. Please enter a number only.")
 
     # 2. Initialize Hardware
     system = ETROCSystem(config)
@@ -169,6 +171,9 @@ def main():
         cal_mgr.apply_configuration(baselines, charge_injection_mode=args.charge_injection)
     else:
         cal_mgr.standard_enable()
+
+
+    exit()
 
     # 4. Final Hardware Trigger Setup
     # (Must be done after chip configuration)

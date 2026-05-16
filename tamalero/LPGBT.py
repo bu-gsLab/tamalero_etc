@@ -56,7 +56,8 @@ class LPGBT(RegParser):
             self.rbver = self.ver + 1
         else:
             self.rbver = rbver
-
+        
+        self.name = "DAQ_LPGBT" if not self.trigger else "TRIG_LPGBT"
         if self.trigger:
             assert isinstance(master, LPGBT), "Trying to initialize a trigger lpGBT but got no lpGBT master."
             self.master = master
@@ -73,6 +74,7 @@ class LPGBT(RegParser):
                 print("Warning: Initializing lpGBT in debug mode.")
             if poke:
                 self.ver = 1  # hard coded for now
+
             self.kcu.write_node("READOUT_BOARD_%d.SC.FRAME_FORMAT" % self.rb, self.ver)
             self.parse_xml(ver=self.ver)
 
@@ -131,8 +133,23 @@ class LPGBT(RegParser):
                 sleep(0.01)
                 is_v1 = (self.rd_adr(0x1d7) == 0xa6)
 
-                is_v2 = (self.rd_adr(0x1d7) == 0xae)
-                
+                ############ HAYDEN ##############
+                # https://lpgbt.web.cern.ch/lpgbt/v2/registermap.html#x1d7-rom
+                self.kcu.write_node("READOUT_BOARD_%d.SC.FRAME_FORMAT" % self.rb, 1)
+                self.wr_adr(0x128, 0xC0) # https://lpgbt.web.cern.ch/lpgbt/v2/registermap.html#x128-uldatasource0
+                sleep(0.01)
+                self.wr_adr(0x128, 0) # https://lpgbt.web.cern.ch/lpgbt/v2/registermap.html#x128-uldatasource0
+                if self.rb == 0 and self.trigger:
+                    self.wr_adr(0x036, 0x00)
+                else:
+                    print("inverting!")
+                    self.wr_adr(0x036, 0x80)  # we might want to go back to the inversion with the next FW version
+                #self.wr_adr(0x036, 0x80)
+                self.wr_adr(0x0fb, 0x6)
+                sleep(0.01)
+                is_v2 = (self.rd_adr(0x1d7) == 0xae)   
+                #################################
+
                 print("0x1d7 readback value is", f'0x{(self.rd_adr(0x1d7)):02x}')
 
                 print("lpGBT version found", is_v0 ^ is_v1 ^ is_v2)
@@ -154,13 +171,20 @@ class LPGBT(RegParser):
                 self.ver = 1
             elif is_v2 and not is_v0 and not is_v1:
                 print (" > lpGBT v2 detected")
-                self.ver = 1
+                self.ver = 2
             else:
                 print (" > unsure about lpGBT version. This case should have been impossible to reach.")
                 raise Exception("Spurious lpGBT version.")
 
         if self.rbver is None:
             self.rbver = self.ver + 1
+        self.rbver = 5 #HAYDEN HARD CODE
+
+        if self.ver > 0:
+            self.kcu.write_node("READOUT_BOARD_%d.SC.FRAME_FORMAT" % self.rb, 1)
+        else:
+            self.kcu.write_node("READOUT_BOARD_%d.SC.FRAME_FORMAT" % self.rb, 0)
+
 
         #self.base_config = load_yaml(os.path.expandvars('./configs/lpgbt_config.yaml'))['base'][f'v{self.ver}']
         #self.ec_config = load_yaml(os.path.expandvars('./configs/lpgbt_config.yaml'))['ec'][f'v{self.ver}']
@@ -171,58 +195,82 @@ class LPGBT(RegParser):
         ## for Constellation use
         here = os.path.dirname(os.path.abspath(__file__))
         config_path = os.path.join(here, '..', 'configs', 'lpgbt_smu_config.yaml')
+        # self.ver = 2
+
+        # if not self.trigger:
         self.base_config = load_yaml(config_path)['base'][f'v{self.ver}']
         self.ec_config = load_yaml(config_path)['ec'][f'v{self.ver}']
-        
-        self.kcu.write_node("READOUT_BOARD_%d.SC.FRAME_FORMAT" % self.rb, self.ver)
+        # else:
+        #     self.base_config = load_yaml(os.path.expandvars('$TAMALERO_BASE/configs/lpgbt_config.yaml'))['base'][f'v{self.ver}']
+        #     self.ec_config = load_yaml(os.path.expandvars('$TAMALERO_BASE/configs/lpgbt_config.yaml'))['ec'][f'v{self.ver}']
+
+        self.kcu.write_node("READOUT_BOARD_%d.SC.FRAME_FORMAT" % self.rb,1)
+        # self.rbver = 5
+
         self.parse_xml(ver=self.ver)
 
-        self.wr_reg('LPGBT.RW.I2C.I2CM1SCLDRIVESTRENGTH',0x1)
-        self.wr_reg('LPGBT.RW.I2C.I2CM1SDADRIVESTRENGTH',0x1)
+        if self.trigger:
+            # self.kcu.write_node("READOUT_BOARD_%d.SC.FRAME_FORMAT" % self.rb, 1)
+            self.wr_adr(0x128, 0xC0) # https://lpgbt.web.cern.ch/lpgbt/v2/registermap.html#x128-uldatasource0
+            sleep(0.01)
+            self.wr_adr(0x128, 0) # https://lpgbt.web.cern.ch/lpgbt/v2/registermap.html#x128-uldatasource0
+            if self.rb == 0 and self.trigger:
+                self.wr_adr(0x036, 0x00)
+            else:
+                print("inverting!")
+                self.wr_adr(0x036, 0x80)  # we might want to go back to the inversion with the next FW version
+            #self.wr_adr(0x036, 0x80)
+            self.wr_adr(0x0fb, 0x6)
+            sleep(0.01)
+            is_v2 = (self.rd_adr(0x1d7) == 0xae)   
 
-        # Change I2C to selected frequency
-        selFreq = 100
-        freq2bitfield = {
-          100:  0b00,
-          200:  0b01,
-          400:  0b10,
-          1000: 0b11,
-        }
-        freqBitfield = freq2bitfield[selFreq]
+        if True:
+            self.wr_reg('LPGBT.RW.I2C.I2CM1SCLDRIVESTRENGTH',0x1)
+            self.wr_reg('LPGBT.RW.I2C.I2CM1SDADRIVESTRENGTH',0x1)
 
-        for idx in range(3):
-          i2cCtrl = self.rd_reg(f'LPGBT.RO.I2CREAD.I2CM{idx}CTRL')
-          i2cCtrl = (i2cCtrl & 0b11111100) + freqBitfield
-          self.wr_reg(f'LPGBT.RW.I2C.I2CM{idx}DATA0', i2cCtrl)
-          self.wr_reg(f'LPGBT.RW.I2C.I2CM{idx}CMD', 0)
+            # Change I2C to selected frequency
+            selFreq = 100
+            freq2bitfield = {
+            100:  0b00,
+            200:  0b01,
+            400:  0b10,
+            1000: 0b11,
+            }
+            freqBitfield = freq2bitfield[selFreq]
 
-        i2cM1Ctrl = self.rd_reg('LPGBT.RO.I2CREAD.I2CM1CTRL')
-    
-        freq_bits = i2cM1Ctrl & 0b11
+            for idx in range(3):
+                i2cCtrl = self.rd_reg(f'LPGBT.RO.I2CREAD.I2CM{idx}CTRL')
+                i2cCtrl = (i2cCtrl & 0b11111100) + freqBitfield
+                self.wr_reg(f'LPGBT.RW.I2C.I2CM{idx}DATA0', i2cCtrl)
+                self.wr_reg(f'LPGBT.RW.I2C.I2CM{idx}CMD', 0)
 
-        if freq_bits == 0b00:
-            print("100khz")
-        elif freq_bits == 0b01:
-            print("200khz")
-        elif freq_bits == 0b10:
-            print("400khz")
-        elif freq_bits == 0b11:
-            print("1 Mhz")
+            i2cM1Ctrl = self.rd_reg('LPGBT.RO.I2CREAD.I2CM1CTRL')
+        
+            freq_bits = i2cM1Ctrl & 0b11
 
-        self.wr_reg('LPGBT.RW.I2C.I2CM1SCLDRIVESTRENGTH',0x1)
-        self.wr_reg('LPGBT.RW.I2C.I2CM1SDADRIVESTRENGTH',0x1)
+            if freq_bits == 0b00:
+                print("100khz")
+            elif freq_bits == 0b01:
+                print("200khz")
+            elif freq_bits == 0b10:
+                print("400khz")
+            elif freq_bits == 0b11:
+                print("1 Mhz")
+
+            self.wr_reg('LPGBT.RW.I2C.I2CM1SCLDRIVESTRENGTH',0x1)
+            self.wr_reg('LPGBT.RW.I2C.I2CM1SDADRIVESTRENGTH',0x1)
         
 
-        I2CM1SCLPULLUPENABLE = self.rd_reg('LPGBT.RW.I2C.I2CM1SCLPULLUPENABLE')
-        # print(f'I2C M1SCLPULLUPENABLE value: {I2CM1SCLPULLUPENABLE}')
-        I2CM1SCLDRIVESTRENGTH = self.rd_reg('LPGBT.RW.I2C.I2CM1SCLDRIVESTRENGTH')
-        # print(f'I2C M1SCLDRIVESTRENGTH value: {I2CM1SCLDRIVESTRENGTH}')
-        I2CM1SDAPULLUPENABLE = self.rd_reg('LPGBT.RW.I2C.I2CM1SDAPULLUPENABLE')
-        # print(f'I2C M1SDAPULLUPENABLE value: {I2CM1SDAPULLUPENABLE}')
-        I2CM1SDADRIVESTRENGTH = self.rd_reg('LPGBT.RW.I2C.I2CM1SDADRIVESTRENGTH')
-        # print(f'I2C M1SDADRIVESTRENGTH value: {I2CM1SDADRIVESTRENGTH}')
-        I2CM1ADDRESSEXT = self.rd_reg('LPGBT.RW.I2C.I2CM1ADDRESSEXT')
-        # print(f'I2C M1 addrESSEXT value: {I2CM1ADDRESSEXT}')
+            I2CM1SCLPULLUPENABLE = self.rd_reg('LPGBT.RW.I2C.I2CM1SCLPULLUPENABLE')
+            # print(f'I2C M1SCLPULLUPENABLE value: {I2CM1SCLPULLUPENABLE}')
+            I2CM1SCLDRIVESTRENGTH = self.rd_reg('LPGBT.RW.I2C.I2CM1SCLDRIVESTRENGTH')
+            # print(f'I2C M1SCLDRIVESTRENGTH value: {I2CM1SCLDRIVESTRENGTH}')
+            I2CM1SDAPULLUPENABLE = self.rd_reg('LPGBT.RW.I2C.I2CM1SDAPULLUPENABLE')
+            # print(f'I2C M1SDAPULLUPENABLE value: {I2CM1SDAPULLUPENABLE}')
+            I2CM1SDADRIVESTRENGTH = self.rd_reg('LPGBT.RW.I2C.I2CM1SDADRIVESTRENGTH')
+            # print(f'I2C M1SDADRIVESTRENGTH value: {I2CM1SDADRIVESTRENGTH}')
+            I2CM1ADDRESSEXT = self.rd_reg('LPGBT.RW.I2C.I2CM1ADDRESSEXT')
+            # print(f'I2C M1 addrESSEXT value: {I2CM1ADDRESSEXT}')
         
 
         if self.trigger:
@@ -241,7 +289,10 @@ class LPGBT(RegParser):
         # Get LPGBT Serial Num
         self.serial_num = 0# self.get_board_id()['lpgbt_serial']
 
-        self.link_inversions = get_config(self.config, version=f'v{self.ver+1}')['inversions']
+        self.link_inversions = get_config(self.config, version=f'v{self.rbver}')['inversions']
+        for link in ['clocks', 'downlink', 'uplink', 'trigger']:
+            if self.link_inversions[link] == None:
+                self.link_inversions[link] = []
 
         if not self.power_up_done():
             print(" > Running power up within LPGBT.configure()")
@@ -281,51 +332,63 @@ class LPGBT(RegParser):
         self.wr_reg("LPGBT.RWF.POWERUP.DLLCONFIGDONE", 0x1)  # NOTE untested change
         self.wr_reg("LPGBT.RWF.POWERUP.PLLCONFIGDONE", 0x1)
 
+    # def set_adc_mapping_HAYDEN_GOT_RID_OF(self):
+    #     assert self.rbver in [1,2,3,4,5], f"Unrecognized version {self.rbver}"
+    #     self.adc_mapping = get_config(self.config, version=f'v{self.rbver}')['LPGBT']['adc']
+    #     for channel in self.adc_mapping:
+    #         ## -----------------added here -------------------
+    #         if self.adc_mapping[channel].get('differential', False):
+    #             pin_pos = self.adc_mapping[channel].get('pin_pos')
+    #             pin_neg = self.adc_mapping[channel].get('pin_neg')
+    #             if pin_pos is not None and pin_pos < 8:
+    #                 if self.adc_mapping[channel]['current'] == 1:
+    #                     if self.verbose:
+    #                         print(f'Enabling current source for differential ADC {channel} (pins {pin_pos})')
+    #                     self.set_current_adc(pin_pos, to=0)
+    #         else:
+    #             if 'pin' in self.adc_mapping[channel]:
+    #         ## -------------------added done
+    #                 if self.adc_mapping[channel]['pin'] < 8:  # ignore internal channels
+    #                     if self.adc_mapping[channel]['current'] == 1:
+    #                         if self.verbose:
+    #                             print(f'Enabling current soure for ADC{channel}')
+    #                         self.set_current_adc(self.adc_mapping[channel]['pin'])
+    #                     else:
+    #                         if self.verbose:
+    #                             print(f'Disabling current soure for ADC{channel}')
+    #                         self.set_current_adc(self.adc_mapping[channel]['pin'], to=0)
+    #     #if self.ver == 0:
+    #     #    self.adc_mapping = read_mapping(os.path.expandvars('$TAMALERO_BASE/configs/LPGBT_mapping.yaml'), 'adc')
+    #     #elif self.ver == 1:
+    #     #    self.adc_mapping = read_mapping(os.path.expandvars('$TAMALERO_BASE/configs/LPGBT_mapping_v2.yaml'), 'adc')
+
     def set_adc_mapping(self):
-        assert self.rbver in [1,2,3], f"Unrecognized version {self.rbver}"
-        self.adc_mapping = get_config(self.config, version=f'v{self.rbver}')['LPGBT']['adc']
+        assert self.rbver in [1,2,3,4,5], f"Unrecognized version {self.rbver}"
+        if  self.rbver > 2 and self.trigger:
+            self.adc_mapping = get_config(self.config, version=f'v{self.rbver}')['LPGBT2']['adc']
+        else:
+            self.adc_mapping = get_config(self.config, version=f'v{self.rbver}')['LPGBT']['adc']
         for channel in self.adc_mapping:
-            ## -----------------added here -------------------
-            if self.adc_mapping[channel].get('differential', False):
-                pin_pos = self.adc_mapping[channel].get('pin_pos')
-                pin_neg = self.adc_mapping[channel].get('pin_neg')
-                if pin_pos is not None and pin_pos < 8:
-                    if self.adc_mapping[channel]['current'] == 1:
-                        if self.verbose:
-                            print(f'Enabling current source for differential ADC {channel} (pins {pin_pos})')
-                        self.set_current_adc(pin_pos, to=0)
-            else:
-                if 'pin' in self.adc_mapping[channel]:
-            ## -------------------added done
-                    if self.adc_mapping[channel]['pin'] < 8:  # ignore internal channels
-                        if self.adc_mapping[channel]['current'] == 1:
-                            if self.verbose:
-                                print(f'Enabling current soure for ADC{channel}')
-                            self.set_current_adc(self.adc_mapping[channel]['pin'])
-                        else:
-                            if self.verbose:
-                                print(f'Disabling current soure for ADC{channel}')
-                            self.set_current_adc(self.adc_mapping[channel]['pin'], to=0)
-        #if self.ver == 0:
-        #    self.adc_mapping = read_mapping(os.path.expandvars('$TAMALERO_BASE/configs/LPGBT_mapping.yaml'), 'adc')
-        #elif self.ver == 1:
-        #    self.adc_mapping = read_mapping(os.path.expandvars('$TAMALERO_BASE/configs/LPGBT_mapping_v2.yaml'), 'adc')
+            if self.adc_mapping[channel]['pin'] < 8:  # ignore internal channels
+                if self.adc_mapping[channel]['current'] == 1:
+                    if self.verbose:
+                        print(f'Enabling current soure for ADC{channel}')
+                    self.set_current_adc(self.adc_mapping[channel]['pin'])
+                else:
+                    if self.verbose:
+                        print(f'Disabling current soure for ADC{channel}')
+                    self.set_current_adc(self.adc_mapping[channel]['pin'], to=0)
+
 
     def set_gpio_mapping(self):
-        assert self.rbver in [1,2,3], f"Unrecognized version {self.rbver}"
-        # if self.rbver > 2 and self.trigger:
-        #     self.gpio_mapping = get_config(self.config, version=f'v{self.rbver}')['LPGBT2']['gpio']
-        # else:
-        #     self.gpio_mapping = get_config(self.config, version=f'v{self.rbver}')['LPGBT']['gpio']
-        if self.ver == 0:
-        #    self.gpio_mapping = read_mapping(os.path.expandvars('/home/roy/Etroc2_CE/module_test_sw/configs/LPGBT_mapping.yaml'), 'gpio')
-           self.gpio_mapping = read_mapping(os.path.expandvars('$TAMALERO_BASE/configs/LPGBT_mapping.yaml'), 'gpio')
-        elif self.ver == 1:
-        #    self.gpio_mapping = read_mapping(os.path.expandvars('/home/roy/Etroc2_CE/module_test_sw/configs/LPGBT_mapping_v2.yaml'), 'gpio')
-           self.gpio_mapping = read_mapping(os.path.expandvars('$TAMALERO_BASE/configs/LPGBT_mapping_v2.yaml'), 'gpio')
-
+        assert self.rbver in [1,2,3,4,5], f"Unrecognized version {self.rbver}"
+        if self.rbver > 2 and self.trigger:
+            self.gpio_mapping = get_config(self.config, version=f'v{self.rbver}')['LPGBT2']['gpio']
+        else:
+            self.gpio_mapping = get_config(self.config, version=f'v{self.rbver}')['LPGBT']['gpio']
+        
     def update_rb_ver(self, new_ver):
-        assert new_ver in [1,2,3], f"Unrecognized version {new_ver}"
+        assert new_ver in [1,2,3,4,5], f"Unrecognized version {new_ver}"
         self.rbver = new_ver
         self.set_adc_mapping()
         self.set_gpio_mapping()
@@ -633,6 +696,7 @@ class LPGBT(RegParser):
         self.wr_reg("LPGBT.RWF.EPORTCLK.EPCLK%dINVERT" % link, invert)
 
     def invert_links(self):
+        print(self.link_inversions)
         if self.trigger:
             for link in range(28):
                 self.set_uplink_invert(link, invert=False)
@@ -684,9 +748,9 @@ class LPGBT(RegParser):
     def get_uplink_invert(self, link):
         return self.rd_reg("LPGBT.RWF.EPORTRX.EPRX_CHN_CONTROL.EPRX%dINVERT" % link)
 
-        #if self.trigger:
+        # if self.trigger:
         #    return self.I2C_read(reg=0xcc+link, master=2, slave_addr=0x70)
-        #else:
+        # else:
         #    return self.rd_adr(0xcc+link).value()
 
     def configure_clocks(self, en_mask):
@@ -1431,7 +1495,7 @@ class LPGBT(RegParser):
         pass
 
     # def I2C_write(self, reg=0x0, val=10, master=2, slave_addr=0x70, adr_nbytes=2, freq=2, verbose=False, ignore_response=False):
-    def I2C_write(self, reg=0x0, val=10, master=0, slave_addr=0x72, adr_nbytes=2, freq=2, verbose=False, ignore_response=False):
+    def I2C_write(self, reg=0x0, val=10, master=2, slave_addr=0x70, adr_nbytes=2, freq=2, verbose=False, ignore_response=False):
         '''
         reg: target register
         val: has to be a single byte, or a list of single bytes.
@@ -1511,7 +1575,7 @@ class LPGBT(RegParser):
                     raise TimeoutError(f"I2C write failed after 50 retries, status={status}")
 
     # def I2C_read(self, reg=0x0, master=2, slave_addr=0x71, nbytes=1, adr_nbytes=2, freq=2, verbose=False, timeout=0.1):
-    def I2C_read(self, reg=0x0, master=0, slave_addr=0x72, nbytes=1, adr_nbytes=2, freq=2, verbose=False, timeout=0.1):
+    def I2C_read(self, reg=0x0, master=2, slave_addr=0x70, nbytes=1, adr_nbytes=2, freq=2, verbose=False, timeout=0.1):
         #https://gitlab.cern.ch/lpgbt/pigbt/-/blob/master/backend/apiapp/lpgbtLib/lowLevelDrivers/MASTERI2C.py#L83
 
         # debugging
@@ -1935,6 +1999,7 @@ class LPGBT(RegParser):
 
     def power_up_done(self):
         return self.rd_reg("LPGBT.RWF.CHIPID.USERID1") == 0xAA
+    
 
 if __name__ == '__main__':
 

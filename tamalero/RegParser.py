@@ -50,6 +50,8 @@ class RegParser(object):
                 self.address_table = os.path.expandvars('$TAMALERO_BASE/address_table/lpgbt_v0.xml')
             if ver == 1:
                 self.address_table = os.path.expandvars('$TAMALERO_BASE/address_table/lpgbt_v1.xml')
+            if ver == 2:
+                self.address_table = os.path.expandvars('$TAMALERO_BASE/address_table/lpgbt_v2.xml')
         else:
             self.address_table = address_table
         if verbose:

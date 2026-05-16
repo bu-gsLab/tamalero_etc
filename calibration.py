@@ -44,12 +44,19 @@ class CalibrationManager:
             ]
 
         # 2. Scan Loop
+
+        self.sys.rb.MUX64.select_channel(63)
         for i, etroc in enumerate(self.sys.etroc_chips):
             chip_name = self.cfg.etroc_names[i]
 
             if etroc is None:
                 print(yellow(f"Skipping {chip_name} (Not connected)"))
                 continue
+            
+            print("BEFORE SCAN")
+            print(f"ETROC is in this powermode on pixel 0,0: {etroc.get_power_mode()}, 4,3={etroc.get_power_mode(row=4,col=3)}")
+            print(f"ETROC VRefGen_PD: {etroc.rd_reg('VRefGen_PD')}, should be 1")
+            print(f"Reading MUX64: {self.sys.rb.MUX64.read_channel(63)}")
 
             print(f"Scanning {chip_name}...")
             chip_data = {
@@ -67,6 +74,7 @@ class CalibrationManager:
                     chip_data['noise_width'].append(noise_width)
                     chip_data['pixel_timestamp_utc'].append(datetime.now(timezone.utc).replace(tzinfo=None).isoformat(sep=' ', timespec='milliseconds'))
 
+
                     # Small sleep to prevent bus congestion
                     time.sleep(0.01)
 
@@ -77,9 +85,15 @@ class CalibrationManager:
                 print(red("Halting DAQ preparation."))
                 sys.exit(1)
 
+            print("AFTER SCAN")
+            print(f"ETROC is in this powermode on pixel 0,0: {etroc.get_power_mode()}, 4,3={etroc.get_power_mode(row=4,col=3)}")
+            print(f"ETROC VRefGen_PD: {etroc.rd_reg('VRefGen_PD')}, should be 1")
+            print(f"Reading MUX64: {self.sys.rb.MUX64.read_channel(63)}")
+
             # 3. Save Data
             if not charge_injection_mode:
-                self._save_to_history(chip_name, chip_data, note)
+                etroc.vtemp = "ETROC1_VTEMP4"
+                self._save_to_history(chip_name, chip_data, etroc.read_temp(mode='VOLT'))
             else:
                 print(yellow(f"   [Note] Charge Injection: Skipping DB save for {chip_name}"))
 

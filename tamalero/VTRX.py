@@ -92,11 +92,11 @@ class VTRX:
 
     def rd_adr(self, adr):
         # return self.master.I2C_read(adr, master=2, slave_addr=0x50, adr_nbytes=1)
-        return self.master.I2C_read(adr, master=0, slave_addr=0x50, adr_nbytes=1)
+        return self.master.I2C_read(adr, master=2, slave_addr=0x50, adr_nbytes=1)
 
     def wr_adr(self, adr, data, ignore_response=False):
         # self.master.I2C_write(adr, val=data, master=2, slave_addr=0x50, adr_nbytes=1, ignore_response=ignore_response)
-        self.master.I2C_write(adr, val=data, master=0, slave_addr=0x50, adr_nbytes=1, ignore_response=ignore_response)
+        self.master.I2C_write(adr, val=data, master=2, slave_addr=0x50, adr_nbytes=1, ignore_response=ignore_response)
 
     def rd_reg(self, reg):
         adr   = self.regs[reg]['adr']
